@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="PNC">
+<meta name="theme-color" content="#1f2a37">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png">
+<title>PNC Inventory</title>
+<script>
+// ================= SETTINGS (Eric edits these once) =================
+const CONFIG = {
+  // The Cloudflare Worker address, e.g. "https://pnc-inventory.yourname.workers.dev"
+  RELAY_URL: "https://pnc-inventory.emitch8.workers.dev",
+  // Every new item gets the next number after this prefix: PNC-00001, PNC-00002 ...
+  SKU_PREFIX: "PNC-",
+  // Whatnot category for every row (must match Whatnot's template exactly)
+  CATEGORY: "Electronics",
+  SUB_CATEGORY: "Tools",
+  // Put "Retail (MSRP) $___" into the Whatnot description
+  MSRP_IN_DESCRIPTION: true,
+};
+// =====================================================================
+</script>
+<script src="vendor/zxing.min.js"></script>
+<script src="vendor/JsBarcode.code128.min.js"></script>
+<style>
+:root{
+  --bg:#f3f4f6; --card:#ffffff; --ink:#111827; --muted:#6b7280; --line:#e5e7eb;
+  --brand:#1f2a37; --accent:#dc2626; --ok:#15803d; --warn:#b45309; --soft:#f9fafb;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+button,input,select,textarea{font:inherit;color:inherit}
+header{position:sticky;top:0;z-index:5;background:var(--brand);color:#fff;padding:calc(env(safe-area-inset-top) + 10px) 16px 10px;display:flex;align-items:center;gap:12px}
+header h1{font-size:19px;margin:0;flex:1;font-weight:650}
+header .sync{font-size:13px;opacity:.85;white-space:nowrap}
+header button{background:rgba(255,255,255,.12);border:0;color:#fff;border-radius:10px;padding:8px 12px;font-size:15px}
+main{max-width:900px;margin:0 auto;padding:16px 16px calc(40px + env(safe-area-inset-bottom))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row > *{flex:1 1 0;min-width:0}
+.btn{appearance:none;border:1px solid var(--line);background:#fff;border-radius:12px;padding:13px 16px;font-weight:600;min-height:50px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn.red{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.ghost{background:transparent}
+.btn.small{min-height:38px;padding:7px 12px;font-size:15px}
+.btn:disabled{opacity:.45}
+label{display:block;font-size:14px;color:var(--muted);margin:0 0 4px;font-weight:600}
+input[type=text],input[type=number],input[type=search],input[type=password],select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:11px 12px;background:#fff;min-height:48px}
+textarea{min-height:90px;resize:vertical}
+input:focus,select:focus,textarea:focus{outline:2px solid #93c5fd;border-color:#60a5fa}
+.field{margin-bottom:12px}
+.scanbox{display:flex;gap:10px}
+.scanbox input{font-size:20px}
+.list .it{display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line);cursor:pointer}
+.list .it:first-child{border-top:0}
+.thumb{width:56px;height:56px;border-radius:8px;background:var(--soft) center/cover no-repeat;border:1px solid var(--line);flex:0 0 56px}
+.it .t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.it .s{font-size:14px;color:var(--muted)}
+.it .p{text-align:right;font-weight:700;white-space:nowrap}
+.pill{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;background:#eef2ff;color:#3730a3;margin-left:6px}
+.pill.warn{background:#fef3c7;color:var(--warn)}
+.pill.ok{background:#dcfce7;color:var(--ok)}
+.muted{color:var(--muted)}
+.hide{display:none!important}
+.pricebar{display:flex;gap:10px;margin-bottom:14px}
+.pricebar div{flex:1;background:var(--brand);color:#fff;border-radius:14px;padding:12px 14px}
+.pricebar small{display:block;opacity:.8;font-size:13px;font-weight:600}
+.pricebar b{font-size:30px}
+.photos{display:flex;gap:10px;flex-wrap:wrap}
+.photo{position:relative;width:110px;height:110px;border-radius:10px;background:var(--soft) center/cover no-repeat;border:1px solid var(--line)}
+.photo .st{position:absolute;left:4px;bottom:4px;font-size:11px;font-weight:700;background:rgba(0,0,0,.65);color:#fff;border-radius:6px;padding:1px 6px}
+.photo .x{position:absolute;right:-8px;top:-8px;width:30px;height:30px;border-radius:50%;border:0;background:#111;color:#fff;font-size:16px;line-height:30px;padding:0}
+.hint{font-size:14px;color:var(--muted);margin-top:4px}
+.warnbox{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:10px;padding:10px 12px;font-size:15px;margin-bottom:12px}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#111827;color:#fff;padding:12px 18px;border-radius:12px;z-index:50;font-weight:600;max-width:90vw;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.seg{display:flex;border:1px solid #d1d5db;border-radius:10px;overflow:hidden}
+.seg button{flex:1;border:0;background:#fff;padding:11px 8px;min-height:48px;font-weight:600}
+.seg button.on{background:var(--brand);color:#fff}
+/* camera */
+#cam{position:fixed;inset:0;background:#000;z-index:40;display:flex;flex-direction:column}
+#cam video{flex:1;width:100%;height:100%;object-fit:cover;min-height:0}
+#cam .top{position:absolute;top:0;left:0;right:0;padding:calc(env(safe-area-inset-top) + 12px) 16px 12px;display:flex;justify-content:space-between;align-items:center;color:#fff;background:linear-gradient(rgba(0,0,0,.6),transparent)}
+#cam .bottom{position:absolute;bottom:0;left:0;right:0;padding:16px 16px calc(24px + env(safe-area-inset-bottom));display:flex;align-items:center;justify-content:space-between;gap:16px;background:linear-gradient(transparent,rgba(0,0,0,.7))}
+#cam .shutter{width:78px;height:78px;border-radius:50%;border:5px solid #fff;background:rgba(255,255,255,.25)}
+#cam .shutter:active{background:#fff}
+#cam .reticle{position:absolute;left:12%;right:12%;top:38%;height:24%;border:3px solid rgba(255,255,255,.85);border-radius:14px;pointer-events:none}
+#cam .strip{display:flex;gap:8px;overflow-x:auto;flex:1}
+#cam .strip div{width:54px;height:54px;border-radius:8px;background:#333 center/cover;flex:0 0 54px;border:2px solid #fff}
+#cam .msg{color:#fff;font-weight:600;text-align:center;flex:1}
+#flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:45;transition:opacity .15s}
+/* modal */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:30;display:flex;align-items:flex-start;justify-content:center;padding:calc(env(safe-area-inset-top) + 30px) 12px 30px;overflow:auto}
+.modal .card{width:100%;max-width:760px}
+table.ex{width:100%;border-collapse:collapse;font-size:15px}
+table.ex td{padding:8px 4px;border-top:1px solid var(--line);vertical-align:top}
+/* label (2 x 1 inch) */
+#label{display:none}
+@media print{
+  @page{size:2in 1in;margin:0}
+  body{background:#fff}
+  body > *:not(#label){display:none!important}
+  #label{display:flex!important;flex-direction:column;justify-content:space-between;width:2in;height:1in;padding:.05in .08in;overflow:hidden;font-family:-apple-system,Helvetica,Arial,sans-serif;color:#000}
+  #label .lt{font-size:7.5pt;font-weight:700;line-height:1.1;max-height:2.2em;overflow:hidden}
+  #label svg{width:100%;height:.5in;display:block}
+  #label .ls{display:flex;justify-content:space-between;font-size:8pt;font-weight:700}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="hdr">PNC Inventory</h1>
+  <span class="sync" id="syncState"></span>
+  <button id="btnExport">Whatnot export</button>
+</header>
+
+<main>
+  <!-- ============ SETUP (first launch only) ============ -->
+  <section id="vSetup" class="hide">
+    <div class="card">
+      <h2 style="margin-top:0">One-time setup</h2>
+      <p class="muted">Type the setup code Eric gave you. You only do this once on this iPad.</p>
+      <div class="field"><label>Setup code</label><input id="setupCode" type="password" autocomplete="off" autocapitalize="off"></div>
+      <button class="btn primary" id="btnSetup" style="width:100%">Continue</button>
+      <p id="setupMsg" class="hint"></p>
+      <p id="standaloneTip" class="warnbox hide" style="margin-top:14px">Tip: tap the Share button in Safari and choose <b>Add to Home Screen</b>, then open the app from that icon.</p>
+    </div>
+  </section>
+
+  <!-- ============ HOME ============ -->
+  <section id="vHome" class="hide">
+    <div class="card">
+      <label>Scan or type a barcode / SKU</label>
+      <div class="scanbox">
+        <input id="scanInput" type="search" inputmode="text" autocomplete="off" autocapitalize="characters" placeholder="Scan, or type and press Go" enterkeyhint="go">
+        <button class="btn primary" id="btnScan" style="flex:0 0 auto">📷 Scan</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="btnGo">Look up</button>
+        <button class="btn" id="btnNew">+ New item (no barcode)</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row" style="align-items:center;margin-bottom:8px">
+        <b id="countLbl" style="flex:1 1 auto">Inventory</b>
+        <input id="filter" type="search" placeholder="Search title, SKU, model" style="flex:2 1 260px">
+      </div>
+      <div class="list" id="list"></div>
+    </div>
+  </section>
+
+  <!-- ============ ITEM ============ -->
+  <section id="vItem" class="hide">
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn ghost" id="btnBack" style="flex:0 0 auto">‹ Back</button>
+      <div style="flex:1"></div>
+      <button class="btn" id="btnPrint" style="flex:0 0 auto">🏷 Print label</button>
+      <button class="btn primary" id="btnSave" style="flex:0 0 auto">Save</button>
+    </div>
+
+    <div class="pricebar" id="pricebar">
+      <div><small>WHATNOT START</small><b id="pbStart">—</b></div>
+      <div><small>MSRP</small><b id="pbMsrp">—</b></div>
+      <div><small>SKU</small><b id="pbSku" style="font-size:22px">—</b></div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <div class="field"><label>Title (what buyers see)</label><input id="fTitle" type="text" maxlength="200" placeholder="e.g. Milwaukee M18 FUEL 1/2&quot; Hammer Drill (Tool Only)"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Brand</label><input id="fBrand" type="text" list="brands"></div>
+        <div class="field"><label>Model #</label><input id="fModel" type="text" autocapitalize="characters"></div>
+        <div class="field"><label>Scanned barcode (UPC)</label><input id="fUpc" type="text" inputmode="numeric"></div>
+      </div>
+      <datalist id="brands"><option>Milwaukee</option><option>Olight</option><option>DeWalt</option><option>Makita</option><option>Ryobi</option><option>Klein Tools</option><option>Streamlight</option><option>Ridgid</option><option>Bosch</option></datalist>
+      <div class="field"><label>Description</label><textarea id="fDesc" placeholder="What's included, any notes"></textarea></div>
+      <div class="field">
+        <label>Condition</label>
+        <div class="seg" id="fCond">
+          <button data-v="Brand New">New / sealed</button>
+          <button data-v="Open-box">Open box</button>
+          <button data-v="Used and fully functioning">Used</button>
+          <button data-v="For parts, not fully functioning, or untested">For parts</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field"><label>MSRP $</label><input id="fMsrp" type="number" inputmode="decimal" min="0" step="0.01"></div>
+        <div class="field"><label>Whatnot start price $</label><input id="fStart" type="number" inputmode="decimal" min="0" step="1"></div>
+        <div class="field"><label>Quantity</label><input id="fQty" type="number" inputmode="numeric" min="0" step="1" value="1"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <div class="field"><label>Weight (lb)</label><input id="fLb" type="number" inputmode="numeric" min="0" step="1"></div>
+        <div class="field"><label>+ oz</label><input id="fOz" type="number" inputmode="decimal" min="0" step="0.1"></div>
+        <div class="field"><label>Length (in)</label><input id="fL" type="number" inputmode="decimal" min="0" step="0.1"></div>
+        <div class="field"><label>Width (in)</label><input id="fW" type="number" inputmode="decimal" min="0" step="0.1"></div>
+        <div class="field"><label>Height (in)</label><input id="fH" type="number" inputmode="decimal" min="0" step="0.1"></div>
+      </div>
+      <div class="hint" id="shipHint">Whatnot shipping: enter a weight</div>
+      <div class="field" style="margin-top:12px">
+        <label>Lithium battery inside or included?</label>
+        <div class="seg" id="fLith">
+          <button data-v="no">No</button>
+          <button data-v="yes">Yes</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="align-items:center;margin-bottom:10px">
+        <b style="flex:1">Photos</b>
+        <button class="btn primary small" id="btnPhotos" style="flex:0 0 auto">📷 Take photos</button>
+        <button class="btn small" id="btnPick" style="flex:0 0 auto">From library</button>
+        <input id="pickFile" type="file" accept="image/*" multiple class="hide">
+      </div>
+      <div class="photos" id="photos"></div>
+      <div class="hint">Up to 8. The first photo is the Whatnot thumbnail. Photos upload by themselves.</div>
+    </div>
+
+    <div class="row">
+      <button class="btn red" id="btnDelete" style="flex:0 0 auto">Delete item</button>
+      <div style="flex:1"></div>
+      <button class="btn primary" id="btnSave2" style="flex:0 0 auto">Save</button>
+    </div>
+  </section>
+</main>
+
+<!-- ============ CAMERA ============ -->
+<div id="cam" class="hide">
+  <video id="video" playsinline muted autoplay></video>
+  <div class="reticle" id="reticle"></div>
+  <div class="top"><b id="camTitle">Scan a barcode</b><button class="btn small" id="camClose">Done</button></div>
+  <div class="bottom">
+    <div class="strip" id="camStrip"></div>
+    <div class="msg" id="camMsg"></div>
+    <button class="shutter" id="shutter" aria-label="Take photo"></button>
+  </div>
+</div>
+<div id="flash"></div>
+
+<!-- ============ EXPORT ============ -->
+<div class="modal hide" id="mExport">
+  <div class="card">
+    <div class="row" style="align-items:center;margin-bottom:8px">
+      <h2 style="margin:0;flex:1">Whatnot export</h2>
+      <button class="btn small" id="exClose" style="flex:0 0 auto">Close</button>
+    </div>
+    <p class="muted" style="margin-top:0">Checked items go into the file. Upload it in Whatnot Seller Hub → Inventory → Upload CSV (or inside a show: Add → Create Temporary Listing).</p>
+    <div class="row" style="margin-bottom:10px">
+      <button class="btn small" id="exAll">Check all</button>
+      <button class="btn small" id="exNew">Only not exported yet</button>
+      <button class="btn small" id="exNone">Uncheck all</button>
+    </div>
+    <table class="ex" id="exTable"></table>
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" id="exGo">Download CSV</button>
+    </div>
+    <p class="hint">After downloading, the checked items are marked "exported" with today's date.</p>
+  </div>
+</div>
+
+<div id="label"></div>
+
+<script>
+"use strict";
+/* ---------------- small helpers ---------------- */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+const money = (v) => (v == null || v === "" ? "—" : "$" + (Number(v) % 1 ? Number(v).toFixed(2) : Number(v)));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+let toastTimer;
+function toast(msg, ms = 2200) {
+  let t = document.querySelector(".toast");
+  if (!t) { t = document.createElement("div"); t.className = "toast"; document.body.appendChild(t); }
+  t.textContent = msg; t.style.display = "block";
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.style.display = "none"), ms);
+}
+
+/* ---------------- local storage (IndexedDB) ---------------- */
+const DB = {
+  db: null,
+  open() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open("pnc-inventory", 1);
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        d.createObjectStore("items", { keyPath: "id" });
+        d.createObjectStore("queue", { keyPath: "qid" });
+        d.createObjectStore("kv");
+      };
+      r.onsuccess = () => { DB.db = r.result; res(); };
+      r.onerror = () => rej(r.error);
+    });
+  },
+  tx(store, mode, fn) {
+    return new Promise((res, rej) => {
+      const t = DB.db.transaction(store, mode);
+      const s = t.objectStore(store);
+      let out;
+      const r = fn(s);
+      if (r) r.onsuccess = () => (out = r.result);
+      t.oncomplete = () => res(out);
+      t.onerror = () => rej(t.error);
+    });
+  },
+  all: (store) => DB.tx(store, "readonly", (s) => s.getAll()),
+  put: (store, v, k) => DB.tx(store, "readwrite", (s) => (k === undefined ? s.put(v) : s.put(v, k))),
+  del: (store, k) => DB.tx(store, "readwrite", (s) => s.delete(k)),
+  get: (store, k) => DB.tx(store, "readonly", (s) => s.get(k)),
+};
+
+/* ---------------- state ---------------- */
+let items = [];          // all items (including deleted tombstones)
+let current = null;      // item being edited
+let passcode = "";
+const pendingUrls = {};  // qid -> object URL for local preview
+
+const live = () => items.filter((i) => !i.deleted);
+
+/* ---------------- relay (Cloudflare Worker) ---------------- */
+function relayReady() { return !!(CONFIG.RELAY_URL && passcode); }
+async function relay(path, opts = {}) {
+  const res = await fetch(CONFIG.RELAY_URL.replace(/\/+$/, "") + path, {
+    ...opts,
+    headers: { ...(opts.headers || {}), "X-Passcode": passcode },
+  });
+  let body = {};
+  try { body = await res.json(); } catch {}
+  if (!res.ok) { const e = new Error(body.error || "Relay answered " + res.status); e.status = res.status; throw e; }
+  return body;
+}
+
+/* ---------------- sync ---------------- */
+let syncing = false, syncAgain = false;
+function setSync(text) { $("syncState").textContent = text; }
+async function sync() {
+  if (!relayReady()) { setSync(CONFIG.RELAY_URL ? "" : "Offline mode"); return; }
+  if (syncing) { syncAgain = true; return; }
+  syncing = true;
+  try {
+    setSync("Syncing…");
+    const dirty = items.filter((i) => i._dirty).map(clean);
+    const { items: server } = dirty.length
+      ? await relay("/items", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: dirty }) })
+      : await relay("/items");
+    const local = new Map(items.map((i) => [i.id, i]));
+    for (const s of server) {
+      const l = local.get(s.id);
+      if (!l || (s.updatedAt || 0) >= (l.updatedAt || 0)) {
+        const merged = { ...s };
+        if (l && l._dirty && (l.updatedAt || 0) > (s.updatedAt || 0)) continue;
+        local.set(s.id, merged);
+        await DB.put("items", merged);
+      }
+    }
+    for (const d of dirty) {
+      const l = local.get(d.id);
+      if (l && l.updatedAt === d.updatedAt) { delete l._dirty; await DB.put("items", l); }
+    }
+    items = [...local.values()];
+    setSync("✓ Saved to cloud");
+    renderList();
+  } catch (e) {
+    setSync(e.status === 401 ? "Wrong setup code" : "Offline – will retry");
+  } finally {
+    syncing = false;
+    if (syncAgain) { syncAgain = false; setTimeout(sync, 300); }
+  }
+}
+function clean(it) { const c = { ...it }; delete c._dirty; return c; }
+setInterval(() => { if (items.some((i) => i._dirty)) sync(); }, 30000);
+window.addEventListener("online", () => { sync(); pumpQueue(); });
+
+async function saveItem(it) {
+  it.updatedAt = Date.now();
+  it._dirty = true;
+  await DB.put("items", it);
+  const i = items.findIndex((x) => x.id === it.id);
+  if (i >= 0) items[i] = it; else items.push(it);
+  sync();
+}
+
+/* ---------------- photo upload queue ---------------- */
+let pumping = false;
+async function pumpQueue() {
+  if (pumping || !relayReady()) return;
+  pumping = true;
+  try {
+    const queue = (await DB.all("queue")).sort((a, b) => a.createdAt - b.createdAt);
+    for (const q of queue) {
+      const it = items.find((x) => x.id === q.itemId);
+      if (!it || it.deleted) { await DB.del("queue", q.qid); continue; }
+      const ph = (it.photos || []).find((p) => p.qid === q.qid);
+      if (!ph) { await DB.del("queue", q.qid); continue; }
+      try {
+        let r = q.shopifyId
+          ? await relay("/status?id=" + encodeURIComponent(q.shopifyId))
+          : await relay(`/upload?sku=${encodeURIComponent(it.sku)}&title=${encodeURIComponent(it.title || "")}`, {
+              method: "POST", headers: { "Content-Type": "image/jpeg" }, body: q.blob,
+            });
+        if (r.pending && r.id) { q.shopifyId = r.id; await DB.put("queue", q); continue; }
+        if (r.error) throw new Error(r.error);
+        ph.url = r.url; delete ph.qid; delete ph.failed;
+        await saveItem(it);
+        await DB.del("queue", q.qid);
+        if (pendingUrls[q.qid]) { URL.revokeObjectURL(pendingUrls[q.qid]); delete pendingUrls[q.qid]; }
+        if (current && current.id === it.id) { current.photos = it.photos; renderPhotos(); }
+        renderList();
+      } catch (e) {
+        if (e.status === 401) { setSync("Wrong setup code"); break; }
+        if (e.status && e.status < 500) { ph.failed = e.message; } // bad photo - keep it local so he sees it
+        break; // network trouble: try again later
+      }
+    }
+  } finally {
+    pumping = false;
+    const left = (await DB.all("queue")).length;
+    if (left) setTimeout(pumpQueue, 8000);
+  }
+}
+
+/* ---------------- SKU ---------------- */
+function nextSku() {
+  const pre = CONFIG.SKU_PREFIX;
+  let max = 0;
+  for (const i of items) {
+    if (i.sku && i.sku.startsWith(pre)) { const n = parseInt(i.sku.slice(pre.length), 10); if (n > max) max = n; }
+  }
+  return pre + String(max + 1).padStart(5, "0");
+}
+
+/* ---------------- Whatnot rules (same as Forge) ---------------- */
+function totalOz(it) {
+  const lb = num(it.weightLb) || 0, oz = num(it.weightOz) || 0;
+  const t = lb * 16 + oz;
+  return t > 0 ? t : null;
+}
+function shippingProfile(it) {
+  const bare = totalOz(it);
+  if (bare == null) return { profile: "", reason: "No weight" };
+  // packaging allowance: <8 oz +1, 8-48 oz +4, >48 oz +8
+  const adj = bare + (bare < 8 ? 1 : bare <= 48 ? 4 : 8);
+  const ladder = [[1, "0-1 oz"], [3, "1-3 oz"], [7, "4-7 oz"], [11, "8-11 oz"], [15, "12-15 oz"], [16, "1 lb"],
+    [32, "1-2 lbs"], [48, "2-3 lbs"], [64, "3-4 lbs"], [96, "4-6 lbs"], [144, "7-9 lbs"], [224, "10-14 lbs"]];
+  for (const [ceil, p] of ladder) if (adj <= ceil) return { profile: p, reason: "", adj };
+  return { profile: "", reason: "Over 14 lb – set shipping in Whatnot", adj };
+}
+function oversize(it) {
+  const s = [num(it.length), num(it.width), num(it.height)];
+  if (s.some((v) => v == null)) return "";
+  s.sort((a, b) => b - a);
+  const combined = s[0] + 2 * (s[1] + s[2]);
+  return s[0] > 108 || combined > 130 ? "Oversize box – check shipping in Whatnot" : "";
+}
+const COND_LABEL = {
+  "Brand New": "New, factory sealed",
+  "Open-box": "Open box",
+  "Used and fully functioning": "Used, fully functioning",
+  "For parts, not fully functioning, or untested": "For parts / not working",
+};
+function whatnotRow(it) {
+  const parts = [];
+  if (it.description) parts.push(it.description.trim().replace(/\s+$/, "").replace(/([^.!?])$/, "$1."));
+  if (it.brand || it.model) parts.push(`${[it.brand, it.model ? "Model: " + it.model : ""].filter(Boolean).join(" ")}.`);
+  if (it.condition) parts.push(`Condition: ${COND_LABEL[it.condition] || it.condition}.`);
+  if (CONFIG.MSRP_IN_DESCRIPTION && num(it.msrp)) parts.push(`Retail (MSRP): $${Number(it.msrp).toFixed(2).replace(/\.00$/, "")}.`);
+  const start = num(it.startPrice);
+  const photos = (it.photos || []).filter((p) => p.url).map((p) => p.url).slice(0, 8);
+  const row = {
+    "Category": CONFIG.CATEGORY,
+    "Sub Category": CONFIG.SUB_CATEGORY,
+    "Title": (it.title || "").slice(0, 200),
+    "Description": parts.join(" ") || it.title || "",
+    "Quantity": String(Math.max(0, parseInt(it.qty, 10) || 0)),
+    "Type": "Auction",
+    "Price": start && start > 0 ? String(Math.ceil(start)) : "",
+    "Shipping Profile": shippingProfile(it).profile,
+    "Offerable": "TRUE",
+    "Hazmat": it.lithium === "yes" ? "Hazmat - Lithium Battery" : "Not Hazmat",
+    "Condition": it.condition || "",
+    "Cost Per Item": "",
+    "SKU": it.sku,
+  };
+  for (let i = 0; i < 8; i++) row["Image URL " + (i + 1)] = photos[i] || "";
+  return row;
+}
+function problems(it) {
+  const p = [];
+  if (!it.title) p.push("No title");
+  if (!(it.photos || []).some((x) => x.url)) p.push((it.photos || []).length ? "Photos still uploading" : "No photo – Whatnot drops it");
+  const sp = shippingProfile(it); if (!sp.profile) p.push(sp.reason);
+  const o = oversize(it); if (o) p.push(o);
+  if (!it.condition) p.push("No condition");
+  if (!num(it.startPrice)) p.push("No start price");
+  return p;
+}
+const COLUMNS = ["Category", "Sub Category", "Title", "Description", "Quantity", "Type", "Price", "Shipping Profile", "Offerable", "Hazmat", "Condition", "Cost Per Item", "SKU",
+  "Image URL 1", "Image URL 2", "Image URL 3", "Image URL 4", "Image URL 5", "Image URL 6", "Image URL 7", "Image URL 8"];
+function toCsv(rows) {
+  const q = (v) => { v = String(v ?? ""); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  return [COLUMNS.join(","), ...rows.map((r) => COLUMNS.map((c) => q(r[c])).join(","))].join("\r\n") + "\r\n";
+}
+
+/* ---------------- views ---------------- */
+function show(view) {
+  for (const v of ["vSetup", "vHome", "vItem"]) $(v).classList.toggle("hide", v !== view);
+  $("btnExport").classList.toggle("hide", view === "vSetup");
+  window.scrollTo(0, 0);
+}
+
+function thumbOf(it) {
+  const p = (it.photos || [])[0];
+  if (!p) return "";
+  return p.url ? p.url + (p.url.includes("?") ? "&" : "?") + "width=120" : pendingUrls[p.qid] || "";
+}
+
+function renderList() {
+  if ($("vHome").classList.contains("hide")) return;
+  const f = $("filter").value.trim().toLowerCase();
+  const all = live().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const shown = f ? all.filter((i) => [i.title, i.sku, i.model, i.upc, i.brand].some((v) => String(v || "").toLowerCase().includes(f))) : all;
+  $("countLbl").textContent = `Inventory (${all.length})`;
+  $("list").innerHTML = shown.length ? shown.map((i) => {
+    const pr = problems(i);
+    const th = thumbOf(i);
+    return `<div class="it" data-id="${esc(i.id)}">
+      <div class="thumb" style="${th ? `background-image:url('${esc(th)}')` : ""}"></div>
+      <div style="flex:1;min-width:0">
+        <div class="t">${esc(i.title || "(no title)")}</div>
+        <div class="s">${esc(i.sku)}${i.model ? " · " + esc(i.model) : ""} · Qty ${esc(i.qty ?? 0)}
+          ${i.exportedAt ? `<span class="pill ok">Exported ${esc(new Date(i.exportedAt).toLocaleDateString())}</span>` : ""}
+          ${pr.length ? `<span class="pill warn">${esc(pr[0])}</span>` : ""}</div>
+      </div>
+      <div class="p">${money(i.startPrice)}<div class="s">MSRP ${money(i.msrp)}</div></div>
+    </div>`;
+  }).join("") : `<p class="muted">${all.length ? "Nothing matches." : "No items yet. Scan a barcode to add the first one."}</p>`;
+}
+
+function openItem(it, isNew) {
+  current = JSON.parse(JSON.stringify(it));
+  current._isNew = !!isNew;
+  $("fTitle").value = it.title || "";
+  $("fBrand").value = it.brand || "";
+  $("fModel").value = it.model || "";
+  $("fUpc").value = it.upc || "";
+  $("fDesc").value = it.description || "";
+  $("fMsrp").value = it.msrp ?? "";
+  $("fStart").value = it.startPrice ?? "";
+  $("fQty").value = it.qty ?? 1;
+  $("fLb").value = it.weightLb ?? "";
+  $("fOz").value = it.weightOz ?? "";
+  $("fL").value = it.length ?? "";
+  $("fW").value = it.width ?? "";
+  $("fH").value = it.height ?? "";
+  setSeg("fCond", it.condition || "");
+  setSeg("fLith", it.lithium || "no");
+  $("btnDelete").classList.toggle("hide", !!isNew);
+  refreshItemBits();
+  renderPhotos();
+  show("vItem");
+  if (isNew && !it.title) setTimeout(() => $("fTitle").focus(), 150);
+}
+function setSeg(id, v) { for (const b of $(id).querySelectorAll("button")) b.classList.toggle("on", b.dataset.v === v); }
+function segVal(id) { const b = $(id).querySelector("button.on"); return b ? b.dataset.v : ""; }
+for (const id of ["fCond", "fLith"]) $(id).addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { setSeg(id, b.dataset.v); readForm(); refreshItemBits(); } });
+
+function readForm() {
+  if (!current) return;
+  Object.assign(current, {
+    title: $("fTitle").value.trim(),
+    brand: $("fBrand").value.trim(),
+    model: $("fModel").value.trim(),
+    upc: $("fUpc").value.trim(),
+    description: $("fDesc").value.trim(),
+    msrp: num($("fMsrp").value),
+    startPrice: num($("fStart").value),
+    qty: parseInt($("fQty").value, 10) || 0,
+    weightLb: num($("fLb").value),
+    weightOz: num($("fOz").value),
+    length: num($("fL").value),
+    width: num($("fW").value),
+    height: num($("fH").value),
+    condition: segVal("fCond"),
+    lithium: segVal("fLith") || "no",
+  });
+}
+function refreshItemBits() {
+  if (!current) return;
+  $("pbStart").textContent = money(current.startPrice);
+  $("pbMsrp").textContent = money(current.msrp);
+  $("pbSku").textContent = current.sku;
+  const sp = shippingProfile(current);
+  const o = oversize(current);
+  $("shipHint").innerHTML = sp.profile
+    ? `Whatnot shipping profile: <b>${esc(sp.profile)}</b> <span class="muted">(includes packing weight)</span>${o ? ` · <b style="color:var(--warn)">${esc(o)}</b>` : ""}`
+    : `<b style="color:var(--warn)">${esc(sp.reason)}</b>`;
+}
+document.querySelectorAll("#vItem input, #vItem textarea").forEach((el) => el.addEventListener("input", () => { readForm(); refreshItemBits(); }));
+
+function renderPhotos() {
+  const ph = current.photos || [];
+  $("photos").innerHTML = ph.map((p, i) => {
+    const src = p.url ? p.url + (p.url.includes("?") ? "&" : "?") + "width=240" : pendingUrls[p.qid] || "";
+    const st = p.url ? (i === 0 ? "Thumbnail" : "") : p.failed ? "Failed" : "Uploading…";
+    return `<div class="photo" style="${src ? `background-image:url('${esc(src)}')` : ""}">
+      ${st ? `<span class="st">${esc(st)}</span>` : ""}<button class="x" data-i="${i}" aria-label="Remove">×</button></div>`;
+  }).join("") || `<span class="muted">No photos yet</span>`;
+  $("btnPhotos").disabled = ph.length >= 8;
+}
+$("photos").addEventListener("click", async (e) => {
+  const b = e.target.closest(".x"); if (!b) return;
+  const i = +b.dataset.i;
+  const [p] = current.photos.splice(i, 1);
+  if (p && p.qid) await DB.del("queue", p.qid);
+  renderPhotos();
+  await commitCurrent(true);
+});
+
+async function commitCurrent(silent) {
+  readForm();
+  const it = clean(current);
+  delete it._isNew;
+  await saveItem(it);
+  current._isNew = false;
+  $("btnDelete").classList.remove("hide");
+  if (!silent) toast("Saved");
+}
+
+async function addPhotoBlob(blob) {
+  if (!current) return;
+  current.photos = current.photos || [];
+  if (current.photos.length >= 8) { toast("8 photos is the Whatnot limit"); return false; }
+  const qid = uid();
+  pendingUrls[qid] = URL.createObjectURL(blob);
+  current.photos.push({ qid });
+  await DB.put("queue", { qid, itemId: current.id, blob, createdAt: Date.now() });
+  await commitCurrent(true);   // photo belongs to a saved item from the first shot
+  renderPhotos();
+  pumpQueue();
+  return true;
+}
+
+/* ---------------- image shrink ---------------- */
+function shrink(source, w, h) {
+  const max = 1600;
+  const k = Math.min(1, max / Math.max(w, h));
+  const c = document.createElement("canvas");
+  c.width = Math.round(w * k); c.height = Math.round(h * k);
+  c.getContext("2d").drawImage(source, 0, 0, c.width, c.height);
+  return new Promise((r) => c.toBlob(r, "image/jpeg", 0.85));
+}
+async function fileToBlob(file) {
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" }).catch(() => null);
+  if (bmp) return shrink(bmp, bmp.width, bmp.height);
+  const img = new Image(); img.src = URL.createObjectURL(file); await img.decode();
+  return shrink(img, img.naturalWidth, img.naturalHeight);
+}
+
+/* ---------------- camera (scan + photos) ---------------- */
+let stream = null, reader = null, camMode = "", lastCode = "", shots = 0;
+async function openCamera(mode) {
+  camMode = mode;
+  $("cam").classList.remove("hide");
+  $("reticle").classList.toggle("hide", mode !== "scan");
+  $("shutter").classList.toggle("hide", mode !== "photo");
+  $("camStrip").classList.toggle("hide", mode !== "photo");
+  $("camStrip").innerHTML = "";
+  $("camTitle").textContent = mode === "scan" ? "Point at a barcode" : "Take photos";
+  $("camMsg").textContent = mode === "scan" ? "Hold steady…" : "";
+  shots = 0;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+    });
+  } catch (e) {
+    closeCamera();
+    toast("Camera blocked. In Settings → Safari → Camera, choose Allow.", 5000);
+    return;
+  }
+  const v = $("video");
+  v.srcObject = stream;
+  await v.play().catch(() => {});
+  if (mode === "scan") scanLoop(v);
+}
+function scanLoop(v) {
+  const hints = new Map();
+  const F = ZXing.BarcodeFormat;
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [F.UPC_A, F.UPC_E, F.EAN_13, F.EAN_8, F.CODE_128, F.CODE_39, F.ITF, F.QR_CODE]);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  reader = new ZXing.MultiFormatReader();
+  reader.setHints(hints);
+  const c = document.createElement("canvas");
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  let full = false;
+  const tick = () => {
+    if (camMode !== "scan") return;
+    if (v.videoWidth) {
+      // alternate between the middle band (fast) and the whole frame
+      const w = v.videoWidth, h = v.videoHeight;
+      const sy = full ? 0 : Math.round(h * 0.3), sh = full ? h : Math.round(h * 0.4);
+      const k = Math.min(1, 1280 / w);
+      c.width = Math.round(w * k); c.height = Math.round(sh * k);
+      ctx.drawImage(v, 0, sy, w, sh, 0, 0, c.width, c.height);
+      full = !full;
+      try {
+        const src = new ZXing.HTMLCanvasElementLuminanceSource(c);
+        const res = reader.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src)));
+        const code = res.getText();
+        if (navigator.vibrate) navigator.vibrate(60);
+        closeCamera();
+        lookup(code);
+        return;
+      } catch (e) { /* nothing found in this frame */ }
+    }
+    setTimeout(tick, 150);
+  };
+  tick();
+}
+function closeCamera() {
+  camMode = "";
+  reader = null;
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = null;
+  $("video").srcObject = null;
+  $("cam").classList.add("hide");
+}
+$("camClose").addEventListener("click", closeCamera);
+$("shutter").addEventListener("click", async () => {
+  const v = $("video");
+  if (!v.videoWidth) return;
+  $("flash").style.opacity = ".8"; setTimeout(() => ($("flash").style.opacity = "0"), 120);
+  const blob = await shrink(v, v.videoWidth, v.videoHeight);
+  const ok = await addPhotoBlob(blob);
+  if (!ok) { closeCamera(); return; }
+  shots++;
+  const d = document.createElement("div");
+  d.style.backgroundImage = `url('${URL.createObjectURL(blob)}')`;
+  $("camStrip").appendChild(d);
+  const left = 8 - current.photos.length;
+  $("camMsg").textContent = left ? `${shots} taken · ${left} more allowed` : "That's 8 – tap Done";
+  if (!left) setTimeout(closeCamera, 700);
+});
+
+/* ---------------- lookup ---------------- */
+function lookup(raw) {
+  const code = String(raw || "").trim();
+  if (!code) return;
+  $("scanInput").value = "";
+  const c = code.toUpperCase();
+  const it = live().find((i) => (i.sku || "").toUpperCase() === c || (i.upc && i.upc.toUpperCase() === c)
+    || (i.upc && i.upc.replace(/^0+/, "") === c.replace(/^0+/, "")));
+  if (it) { openItem(it, false); return; }
+  if (c.startsWith(CONFIG.SKU_PREFIX.toUpperCase())) { toast(`${code} isn't in the inventory`, 3000); return; }
+  newItem(/^\d{6,14}$/.test(code) ? code : "", /^\d{6,14}$/.test(code) ? "" : code);
+  toast("New item – barcode not found, fill it in");
+}
+function newItem(upc = "", model = "") {
+  const it = { id: uid(), sku: nextSku(), upc, model, title: "", qty: 1, condition: "Brand New", lithium: "no", photos: [], createdAt: Date.now() };
+  openItem(it, true);
+}
+
+/* ---------------- label ---------------- */
+function printLabel() {
+  readForm();
+  const it = current;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  JsBarcode(svg, it.sku, { format: "CODE128", displayValue: false, margin: 0, height: 60, width: 2 });
+  svg.setAttribute("preserveAspectRatio", "none");
+  $("label").innerHTML = `<div class="lt">${esc(it.title || it.model || "")}</div>`;
+  $("label").appendChild(svg);
+  const s = document.createElement("div");
+  s.className = "ls";
+  s.innerHTML = `<span>${esc(it.sku)}</span><span>${it.model ? esc(it.model) : ""}</span>`;
+  $("label").appendChild(s);
+  setTimeout(() => window.print(), 50);
+}
+
+/* ---------------- export ---------------- */
+function openExport() {
+  const all = live().filter((i) => (parseInt(i.qty, 10) || 0) > 0).sort((a, b) => (a.sku > b.sku ? 1 : -1));
+  $("exTable").innerHTML = all.length ? all.map((i) => {
+    const pr = problems(i);
+    return `<tr><td style="width:40px"><input type="checkbox" data-id="${esc(i.id)}" ${i.exportedAt ? "" : "checked"} style="width:24px;height:24px"></td>
+      <td><b>${esc(i.title || "(no title)")}</b><div class="muted">${esc(i.sku)} · Qty ${esc(i.qty)} · Start ${money(i.startPrice)}
+      ${i.exportedAt ? ` · <span class="pill ok">Exported ${esc(new Date(i.exportedAt).toLocaleDateString())}</span>` : ""}</div>
+      ${pr.length ? `<div style="color:var(--warn);font-size:14px">⚠ ${esc(pr.join(" · "))}</div>` : ""}</td></tr>`;
+  }).join("") : `<tr><td class="muted">No items with quantity yet.</td></tr>`;
+  $("mExport").classList.remove("hide");
+}
+function exChecks() { return [...$("exTable").querySelectorAll("input[type=checkbox]")]; }
+$("exAll").onclick = () => exChecks().forEach((c) => (c.checked = true));
+$("exNone").onclick = () => exChecks().forEach((c) => (c.checked = false));
+$("exNew").onclick = () => exChecks().forEach((c) => (c.checked = !items.find((i) => i.id === c.dataset.id).exportedAt));
+$("exClose").onclick = () => $("mExport").classList.add("hide");
+$("exGo").onclick = async () => {
+  const ids = exChecks().filter((c) => c.checked).map((c) => c.dataset.id);
+  if (!ids.length) { toast("Check at least one item"); return; }
+  const chosen = ids.map((id) => items.find((i) => i.id === id));
+  const noPhoto = chosen.filter((i) => !(i.photos || []).some((p) => p.url)).length;
+  if (noPhoto && !confirm(`${noPhoto} item(s) have no uploaded photo yet. Whatnot skips those rows. Download anyway?`)) return;
+  const csv = toCsv(chosen.map(whatnotRow));
+  const d = new Date();
+  const name = `whatnot-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}.csv`;
+  const blob = new Blob([csv], { type: "text/csv" });
+  const file = new File([blob], name, { type: "text/csv" });
+  if (navigator.canShare && navigator.canShare({ files: [file] }) && /iPad|iPhone|Macintosh/.test(navigator.userAgent) && "ontouchend" in document) {
+    try { await navigator.share({ files: [file], title: name }); } catch (e) { if (e.name === "AbortError") return; download(blob, name); }
+  } else download(blob, name);
+  const now = Date.now();
+  for (const i of chosen) { i.exportedAt = now; await saveItem(i); }
+  $("mExport").classList.add("hide");
+  renderList();
+  toast(`${chosen.length} item(s) exported`);
+};
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/* ---------------- wiring ---------------- */
+$("btnScan").onclick = () => openCamera("scan");
+$("btnGo").onclick = () => lookup($("scanInput").value);
+$("scanInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); lookup($("scanInput").value); } });
+$("btnNew").onclick = () => newItem();
+$("filter").addEventListener("input", renderList);
+$("list").addEventListener("click", (e) => { const r = e.target.closest(".it"); if (r) openItem(items.find((i) => i.id === r.dataset.id), false); });
+$("btnBack").onclick = async () => {
+  readForm();
+  if (current && !current._isNew) await commitCurrent(true);
+  else if (current && current._isNew && (current.title || (current.photos || []).length)) await commitCurrent(true);
+  current = null; show("vHome"); renderList();
+};
+const doSave = async () => {
+  readForm();
+  if (!current.title) { toast("Add a title first"); $("fTitle").focus(); return; }
+  await commitCurrent();
+  current = null; show("vHome"); renderList();
+};
+$("btnSave").onclick = doSave; $("btnSave2").onclick = doSave;
+$("btnPrint").onclick = async () => { readForm(); if (current._isNew) await commitCurrent(true); printLabel(); };
+$("btnPhotos").onclick = () => openCamera("photo");
+$("btnPick").onclick = () => $("pickFile").click();
+$("pickFile").onchange = async (e) => {
+  for (const f of [...e.target.files]) { const b = await fileToBlob(f); if (!(await addPhotoBlob(b))) break; }
+  e.target.value = "";
+};
+$("btnDelete").onclick = async () => {
+  if (!confirm("Delete this item?")) return;
+  for (const p of current.photos || []) if (p.qid) await DB.del("queue", p.qid);
+  const it = clean(current); delete it._isNew; it.deleted = true;
+  await saveItem(it);
+  current = null; show("vHome"); renderList(); toast("Deleted");
+};
+$("btnExport").onclick = openExport;
+
+$("btnSetup").onclick = async () => {
+  const code = $("setupCode").value.trim();
+  if (!code) return;
+  if (!CONFIG.RELAY_URL) { $("setupMsg").textContent = "The app isn't connected yet (RELAY_URL is empty). Ask Eric."; return; }
+  passcode = code;
+  $("setupMsg").textContent = "Checking…";
+  try {
+    await relay("/ping");
+    await DB.put("kv", code, "passcode");
+    await start();
+  } catch (e) {
+    passcode = "";
+    $("setupMsg").textContent = e.status === 401 ? "That code isn't right." : "Couldn't reach the internet. Try again.";
+  }
+};
+
+async function start() {
+  items = await DB.all("items");
+  for (const q of await DB.all("queue")) pendingUrls[q.qid] = URL.createObjectURL(q.blob);
+  show("vHome");
+  renderList();
+  sync();
+  pumpQueue();
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+}
+
+(async function boot() {
+  await DB.open();
+  passcode = (await DB.get("kv", "passcode")) || "";
+  const standalone = window.navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+  $("standaloneTip").classList.toggle("hide", !!standalone);
+  if (CONFIG.RELAY_URL && !passcode) { show("vSetup"); return; }
+  await start();
+})();
+</script>
+</body>
+</html>
