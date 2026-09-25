@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="PNC">
-<meta name="theme-color" content="#1f2a37">
+<meta name="theme-color" content="#0b0b0d">
 <link rel="apple-touch-icon" href="icon.png">
 <link rel="icon" href="icon.png">
 <title>PNC Inventory</title>
@@ -31,12 +31,13 @@ const CONFIG = {
 <style>
 :root{
   --bg:#f3f4f6; --card:#ffffff; --ink:#111827; --muted:#6b7280; --line:#e5e7eb;
-  --brand:#1f2a37; --accent:#dc2626; --ok:#15803d; --warn:#b45309; --soft:#f9fafb;
+  --brand:#0b0b0d; --accent:#dc2626; --ok:#15803d; --warn:#b45309; --soft:#f9fafb;
 }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
 button,input,select,textarea{font:inherit;color:inherit}
 header{position:sticky;top:0;z-index:5;background:var(--brand);color:#fff;padding:calc(env(safe-area-inset-top) + 10px) 16px 10px;display:flex;align-items:center;gap:12px}
+header .hlogo{height:46px;width:46px;object-fit:contain;margin:-4px 0}
 header h1{font-size:19px;margin:0;flex:1;font-weight:650}
 header .sync{font-size:13px;opacity:.85;white-space:nowrap}
 header button{background:rgba(255,255,255,.12);border:0;color:#fff;border-radius:10px;padding:8px 12px;font-size:15px}
@@ -115,7 +116,7 @@ table.ex td{padding:8px 4px;border-top:1px solid var(--line);vertical-align:top}
 <body>
 
 <header>
-  <h1 id="hdr">PNC Inventory</h1>
+  <img src="logo.jpg" alt="PNC" class="hlogo"><h1 id="hdr">PNC Inventory</h1>
   <span class="sync" id="syncState"></span>
   <button id="btnExport">Whatnot export</button>
 </header>
@@ -124,7 +125,7 @@ table.ex td{padding:8px 4px;border-top:1px solid var(--line);vertical-align:top}
   <!-- ============ SETUP (first launch only) ============ -->
   <section id="vSetup" class="hide">
     <div class="card">
-      <h2 style="margin-top:0">One-time setup</h2>
+      <img src="logo.jpg" alt="PNC" style="display:block;width:180px;height:180px;margin:0 auto 10px;border-radius:16px;background:#000"><h2 style="margin-top:0">One-time setup</h2>
       <p class="muted">Type the setup code Eric gave you. You only do this once on this iPad.</p>
       <div class="field"><label>Setup code</label><input id="setupCode" type="password" autocomplete="off" autocapitalize="off"></div>
       <button class="btn primary" id="btnSetup" style="width:100%">Continue</button>
