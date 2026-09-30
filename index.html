@@ -763,11 +763,35 @@ function lookup(raw) {
     || (i.upc && i.upc.replace(/^0+/, "") === c.replace(/^0+/, "")));
   if (it) { openItem(it, false); return; }
   if (c.startsWith(CONFIG.SKU_PREFIX.toUpperCase())) { toast(`${code} isn't in the inventory`, 3000); return; }
-  newItem(/^\d{6,14}$/.test(code) ? code : "", /^\d{6,14}$/.test(code) ? "" : code);
-  toast("New item – barcode not found, fill it in");
+  const isUpc = /^\d{6,14}$/.test(code);
+  milwaukeeLookup(code).then((m) => {
+    if (m) { newItem(code, m.model, m); toast(`${m.brand} ${m.model} – filled in. Add MSRP and start price.`); return; }
+    newItem(isUpc ? code : "", isUpc ? "" : code);
+    toast("New item – barcode not found, fill it in");
+  });
 }
-function newItem(upc = "", model = "") {
+/* Product facts for a scanned UPC or typed model number, from the product list kept
+   behind the passcode in the relay. Never prices or costs. */
+async function milwaukeeLookup(code) {
+  if (!relayReady()) return null;
+  try {
+    const r = await relay("/lookup?code=" + encodeURIComponent(String(code).trim()));
+    if (!r || !r.found) return null;
+    const lb = num(r.weight) || 0;
+    return { brand: r.brand || "", model: r.model, desc: r.description, L: r.length, W: r.width, H: r.height,
+      lb: Math.floor(lb), oz: Math.round((lb - Math.floor(lb)) * 16 * 10) / 10, li: !!r.lithium, upc: String(r.upc) };
+  } catch (e) { return null; }
+}
+function newItem(upc = "", model = "", m = null) {
   const it = { id: uid(), sku: nextSku(), upc, model, title: "", qty: 1, condition: "Brand New", lithium: "no", photos: [], createdAt: Date.now() };
+  if (m) Object.assign(it, {
+    upc: /^\d+$/.test(upc) ? upc : (m.upc.length === 11 ? "0" + m.upc : m.upc),
+    brand: m.brand, model: m.model,
+    title: `${m.brand} ${m.model} ${m.desc}`.trim().slice(0, 200),
+    weightLb: m.lb || "", weightOz: m.oz || "",
+    length: m.L || "", width: m.W || "", height: m.H || "",
+    lithium: m.li ? "yes" : "no",
+  });
   openItem(it, true);
 }
 
@@ -900,7 +924,26 @@ async function start() {
   $("standaloneTip").classList.toggle("hide", !!standalone);
   if (CONFIG.RELAY_URL && !passcode) { show("vSetup"); return; }
   await start();
+  if (location.hash === "#load-products") showProductLoader();
 })();
+
+/* One-time, owner only: open this page with #load-products on the end of the address to
+   load the product list file into the relay (it stays behind the passcode). */
+function showProductLoader() {
+  const box = document.createElement("div");
+  box.style.cssText = "position:fixed;inset:auto 16px 16px 16px;z-index:60;background:#fff;border:2px solid #0b0b0d;border-radius:14px;padding:16px;box-shadow:0 8px 24px rgba(0,0,0,.25)";
+  box.innerHTML = '<b>Load product list</b><p class="hint">Pick pnc-product-list.json. It is stored behind the passcode, not on this page.</p><input type="file" accept=".json,application/json"><p class="hint" id="plMsg"></p><button class="btn">Close</button>';
+  document.body.appendChild(box);
+  box.querySelector("button").onclick = () => { box.remove(); history.replaceState(null, "", location.pathname); };
+  box.querySelector("input").onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const msg = box.querySelector("#plMsg"); msg.textContent = "Loading…";
+    try {
+      const r = await relay("/catalog", { method: "POST", headers: { "Content-Type": "application/json" }, body: await f.text() });
+      msg.textContent = "Product list loaded.";
+    } catch (err) { msg.textContent = "Failed: " + err.message; }
+  };
+}
 </script>
 </body>
 </html>
