@@ -770,7 +770,7 @@ function lookup(raw) {
   if (c.startsWith(CONFIG.SKU_PREFIX.toUpperCase())) { toast(`${code} isn't in the inventory`, 3000); return; }
   const isUpc = /^\d{6,14}$/.test(code);
   milwaukeeLookup(code).then((m) => {
-    if (m) { newItem(code, m.model, m); toast(`${m.brand} ${m.model} – filled in. Add MSRP and start price.`); fetchStock(current.id, false); return; }
+    if (m) { newItem(isUpc ? code : "", m.model, m); toast(`${m.brand} ${m.model || ""} – filled in. Check it, then add the start price.`); fetchStock(current.id, false); return; }
     newItem(isUpc ? code : "", isUpc ? "" : code);
     toast("New item – barcode not found, fill it in");
   });
@@ -783,8 +783,9 @@ async function milwaukeeLookup(code) {
     const r = await relay("/lookup?code=" + encodeURIComponent(String(code).trim()));
     if (!r || !r.found) return null;
     const lb = num(r.weight) || 0;
-    return { brand: r.brand || "", model: r.model, desc: r.description, L: r.length, W: r.width, H: r.height,
-      lb: Math.floor(lb), oz: Math.round((lb - Math.floor(lb)) * 16 * 10) / 10, li: !!r.lithium, upc: String(r.upc) };
+    return { brand: r.brand || "", model: r.model || "", desc: r.description, L: r.length, W: r.width, H: r.height,
+      lb: Math.floor(lb), oz: Math.round((lb - Math.floor(lb)) * 16 * 10) / 10, li: !!r.lithium, upc: String(r.upc || ""),
+      msrp: r.msrp || "", titleIsName: !!r.titleIsName };
   } catch (e) { return null; }
 }
 function newItem(upc = "", model = "", m = null) {
@@ -792,7 +793,8 @@ function newItem(upc = "", model = "", m = null) {
   if (m) Object.assign(it, {
     upc: /^\d+$/.test(upc) ? upc : (m.upc.length === 11 ? "0" + m.upc : m.upc),
     brand: m.brand, model: m.model,
-    title: `${m.brand} ${m.model} ${m.desc}`.trim().slice(0, 200),
+    title: (m.titleIsName ? `${m.brand} ${m.desc}` : `${m.brand} ${m.model} ${m.desc}`).trim().slice(0, 200),
+    msrp: m.msrp || "",
     weightLb: m.lb || "", weightOz: m.oz || "",
     length: m.L || "", width: m.W || "", height: m.H || "",
     lithium: m.li ? "yes" : "no",
