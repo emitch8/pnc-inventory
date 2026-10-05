@@ -635,7 +635,7 @@ async function commitCurrent(silent) {
   await saveItem(it);
   current._isNew = false;
   $("btnDelete").classList.remove("hide");
-  if (!silent) toast("Saved");
+  if (!silent) { toast("Saved"); fetchStock(it.id, false); }
 }
 
 async function addPhotoBlob(blob) {
@@ -766,7 +766,7 @@ function lookup(raw) {
   if (c.startsWith(CONFIG.SKU_PREFIX.toUpperCase())) { toast(`${code} isn't in the inventory`, 3000); return; }
   const isUpc = /^\d{6,14}$/.test(code);
   milwaukeeLookup(code).then((m) => {
-    if (m) { newItem(code, m.model, m); toast(`${m.brand} ${m.model} – filled in. Add MSRP and start price.`); return; }
+    if (m) { newItem(code, m.model, m); toast(`${m.brand} ${m.model} – filled in. Add MSRP and start price.`); fetchStock(current.id, false); return; }
     newItem(isUpc ? code : "", isUpc ? "" : code);
     toast("New item – barcode not found, fill it in");
   });
@@ -878,30 +878,56 @@ const doSave = async () => {
 $("btnSave").onclick = doSave; $("btnSave2").onclick = doSave;
 $("btnPrint").onclick = async () => { readForm(); if (current._isNew) await commitCurrent(true); printLabel(); };
 $("btnPhotos").onclick = () => openCamera("photo");
-/* Stock photo: the manufacturer's own product picture, found by model number. It goes in
-   FIRST, so it becomes the Whatnot thumbnail; his own photos stay behind it. */
-$("btnStock").onclick = async () => {
-  if (!current) return;
-  readForm();
-  const model = (current.model || "").trim();
-  if (!model) { toast("Enter the model number first"); return; }
-  if (!relayReady()) { toast("Not connected – can't get a stock photo"); return; }
-  if ((current.photos || []).length >= 8) { toast("8 photos is the Whatnot limit – remove one first"); return; }
-  const btn = $("btnStock"); btn.disabled = true; const label = btn.textContent; btn.textContent = "Finding…";
+/* Stock photo: the manufacturer's own product picture (Milwaukee by model number, Olight
+   by title). It goes in FIRST, so it becomes the Whatnot thumbnail; his own photos stay
+   behind it. It fills in by itself on a scan and on the first save of an item that has
+   no photo; the button is for doing it by hand. */
+const stockBusy = new Set();
+function stockQuery(it) {
+  const brand = (it.brand || "").toLowerCase(), title = (it.title || "").trim(), model = (it.model || "").trim();
+  if (brand.includes("olight") || /\bolight\b/i.test(title)) return title ? { brand: "olight", model, title } : null;
+  if (brand.includes("milwaukee") || /\bmilwaukee\b/i.test(title) || (!brand && /^\d{4}-\d{2}|^\d{2}-\d{2}-\d{4}/.test(model))) return model ? { brand: "milwaukee", model, title } : null;
+  return null;
+}
+async function fetchStock(itemId, byHand) {
+  const src = current && current.id === itemId ? (readForm(), current) : items.find((x) => x.id === itemId);
+  if (!src || stockBusy.has(itemId)) return;
+  const q = stockQuery(src);
+  if (!q) { if (byHand) toast("Stock photos work for Milwaukee (needs the model number) and Olight (needs the title)", 4500); return; }
+  if (!relayReady()) { if (byHand) toast("Not connected – can't get a stock photo"); return; }
+  if ((src.photos || []).length >= 8) { if (byHand) toast("8 photos is the Whatnot limit – remove one first"); return; }
+  if (!byHand && ((src.photos || []).length || src.stockTried)) return;
+  stockBusy.add(itemId);
+  const btn = $("btnStock"), label = "🖼 Stock photo";
+  if (current && current.id === itemId) { btn.disabled = true; btn.textContent = "Finding photo…"; }
+  let url = "", err = null, notFound = false;
   try {
-    await commitCurrent(true);
-    let r = await relay(`/stock?model=${encodeURIComponent(model)}&sku=${encodeURIComponent(current.sku)}&title=${encodeURIComponent(current.title || "")}`, { method: "POST" });
+    let r = await relay(`/stock?brand=${encodeURIComponent(q.brand)}&model=${encodeURIComponent(q.model)}&sku=${encodeURIComponent(src.sku)}&title=${encodeURIComponent(q.title)}`, { method: "POST" });
     for (let i = 0; i < 10 && r.pending && r.id; i++) { await new Promise((res) => setTimeout(res, 1500)); r = await relay("/status?id=" + encodeURIComponent(r.id)); }
     if (r.error) throw new Error(r.error);
     if (!r.url) throw new Error("Still processing – try again in a minute");
-    current.photos = current.photos || [];
-    current.photos.unshift({ url: r.url, stock: true });
-    await commitCurrent(true);
-    renderPhotos(); renderList();
-    toast("Stock photo added as the thumbnail");
-  } catch (e) { toast(e.message || "Couldn't get a stock photo", 4000); }
-  finally { btn.disabled = false; btn.textContent = label; }
-};
+    url = r.url;
+  } catch (e) { err = e; notFound = e.status === 404 || e.status === 400; }
+  stockBusy.delete(itemId);
+  btn.disabled = false; btn.textContent = label;
+  const photo = url ? { url, stock: true } : null;
+  if (current && current.id === itemId) {
+    if (photo) { current.photos = current.photos || []; current.photos.unshift(photo); renderPhotos(); }
+    if (notFound) current.stockTried = true;
+    if (!current._isNew && (photo || notFound)) await commitCurrent(true);
+  } else {
+    const it = items.find((x) => x.id === itemId);
+    if (it && (photo || notFound)) {
+      if (photo) it.photos = [photo, ...(it.photos || [])];
+      if (notFound) it.stockTried = true;
+      await saveItem(clean(it));
+    }
+  }
+  renderList();
+  if (photo && byHand) toast("Stock photo added as the thumbnail");
+  if (err && byHand) toast(err.message || "Couldn't get a stock photo", 4500);
+}
+$("btnStock").onclick = () => { if (current) fetchStock(current.id, true); };
 $("btnPick").onclick = () => $("pickFile").click();
 $("pickFile").onchange = async (e) => {
   for (const f of [...e.target.files]) { const b = await fileToBlob(f); if (!(await addPhotoBlob(b))) break; }
