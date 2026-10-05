@@ -781,6 +781,7 @@ async function milwaukeeLookup(code) {
   if (!relayReady()) return null;
   try {
     const r = await relay("/lookup?code=" + encodeURIComponent(String(code).trim()));
+    if (r && !r.found && r.reason && /olight/i.test(String(code))) toast("Olight: " + r.reason, 5000);
     if (!r || !r.found) return null;
     const lb = num(r.weight) || 0;
     return { brand: r.brand || "", model: r.model || "", desc: r.description, L: r.length, W: r.width, H: r.height,
