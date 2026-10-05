@@ -230,6 +230,7 @@ table.ex td{padding:8px 4px;border-top:1px solid var(--line);vertical-align:top}
     <div class="row">
       <button class="btn red" id="btnDelete" style="flex:0 0 auto">Delete item</button>
       <div style="flex:1"></div>
+      <button class="btn" id="btnCancel" style="flex:0 0 auto">Cancel</button>
       <button class="btn primary" id="btnSave2" style="flex:0 0 auto">Save</button>
     </div>
   </section>
@@ -550,6 +551,7 @@ function renderList() {
 function openItem(it, isNew) {
   current = JSON.parse(JSON.stringify(it));
   current._isNew = !!isNew;
+  if (isNew) current._draft = true; else delete current._draft;   // a draft becomes a real item only on Save
   $("fTitle").value = it.title || "";
   $("fBrand").value = it.brand || "";
   $("fModel").value = it.model || "";
@@ -633,10 +635,10 @@ $("photos").addEventListener("click", async (e) => {
 async function commitCurrent(silent) {
   readForm();
   const it = clean(current);
-  delete it._isNew;
+  delete it._isNew; delete it._draft;
   await saveItem(it);
   current._isNew = false;
-  $("btnDelete").classList.remove("hide");
+  $("btnDelete").classList.toggle("hide", !!current._draft);
   if (!silent) { toast("Saved"); fetchStock(it.id, false); }
 }
 
@@ -865,15 +867,25 @@ $("scanInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.p
 $("btnNew").onclick = () => newItem();
 $("filter").addEventListener("input", renderList);
 $("list").addEventListener("click", (e) => { const r = e.target.closest(".it"); if (r) openItem(items.find((i) => i.id === r.dataset.id), false); });
-$("btnBack").onclick = async () => {
-  readForm();
-  if (current && !current._isNew) await commitCurrent(true);
-  else if (current && current._isNew && (current.title || (current.photos || []).length)) await commitCurrent(true);
+/* Only Save saves. Back and Cancel leave without saving: a new item that was never saved
+   is thrown away (even if a photo or label already stored it behind the scenes), and
+   unsaved edits to an existing item are dropped. */
+const leaveWithoutSaving = async () => {
+  if (current && current._draft && !current._isNew) {
+    for (const p of current.photos || []) if (p.qid) await DB.del("queue", p.qid);
+    const it = clean(current); delete it._isNew; delete it._draft; it.deleted = true;
+    await saveItem(it);
+  }
+  const wasDraft = current && current._draft;
   current = null; show("vHome"); renderList();
+  if (wasDraft) toast("Not saved");
 };
+$("btnBack").onclick = leaveWithoutSaving;
+$("btnCancel").onclick = leaveWithoutSaving;
 const doSave = async () => {
   readForm();
   if (!current.title) { toast("Add a title first"); $("fTitle").focus(); return; }
+  delete current._draft;
   await commitCurrent();
   current = null; show("vHome"); renderList();
 };
@@ -919,7 +931,7 @@ async function fetchStock(itemId, byHand) {
     if (!current._isNew && (photo || notFound)) await commitCurrent(true);
   } else {
     const it = items.find((x) => x.id === itemId);
-    if (it && (photo || notFound)) {
+    if (it && !it.deleted && (photo || notFound)) {
       if (photo) it.photos = [photo, ...(it.photos || [])];
       if (notFound) it.stockTried = true;
       await saveItem(clean(it));
@@ -938,7 +950,7 @@ $("pickFile").onchange = async (e) => {
 $("btnDelete").onclick = async () => {
   if (!confirm("Delete this item?")) return;
   for (const p of current.photos || []) if (p.qid) await DB.del("queue", p.qid);
-  const it = clean(current); delete it._isNew; it.deleted = true;
+  const it = clean(current); delete it._isNew; delete it._draft; it.deleted = true;
   await saveItem(it);
   current = null; show("vHome"); renderList(); toast("Deleted");
 };
