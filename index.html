@@ -221,11 +221,10 @@ table.ex td{padding:8px 4px;border-top:1px solid var(--line);vertical-align:top}
         <b style="flex:1">Photos</b>
         <button class="btn primary small" id="btnPhotos" style="flex:0 0 auto">📷 Take photos</button>
         <button class="btn small" id="btnPick" style="flex:0 0 auto">From library</button>
-        <button class="btn small" id="btnStock" style="flex:0 0 auto">🖼 Stock photo</button>
         <input id="pickFile" type="file" accept="image/*" multiple class="hide">
       </div>
       <div class="photos" id="photos"></div>
-      <div class="hint">Up to 8. The first photo is the Whatnot thumbnail. Photos upload by themselves.</div>
+      <div class="hint">Up to 8. The first photo is the Whatnot thumbnail. Photos upload by themselves. <b id="stockNote"></b></div>
     </div>
 
     <div class="row">
@@ -570,6 +569,7 @@ function openItem(it, isNew) {
   refreshItemBits();
   renderPhotos();
   show("vItem");
+  if (!isNew && !(it.photos || []).length) fetchStock(it.id, false);   // a saved item with no photo fills itself in
   if (isNew && !it.title) setTimeout(() => $("fTitle").focus(), 150);
 }
 function setSeg(id, v) { for (const b of $(id).querySelectorAll("button")) b.classList.toggle("on", b.dataset.v === v); }
@@ -624,8 +624,10 @@ $("photos").addEventListener("click", async (e) => {
   const i = +b.dataset.i;
   const [p] = current.photos.splice(i, 1);
   if (p && p.qid) await DB.del("queue", p.qid);
+  if (p && p.stock) current.stockRemoved = true;   // he took the stock photo off: leave it off
   renderPhotos();
   await commitCurrent(true);
+  if (!current.photos.length) fetchStock(current.id, false);
 });
 
 async function commitCurrent(silent) {
@@ -881,7 +883,7 @@ $("btnPhotos").onclick = () => openCamera("photo");
 /* Stock photo: the manufacturer's own product picture (Milwaukee by model number, Olight
    by title). It goes in FIRST, so it becomes the Whatnot thumbnail; his own photos stay
    behind it. It fills in by itself on a scan and on the first save of an item that has
-   no photo; the button is for doing it by hand. */
+   no photo, on opening one, and when his last photo is removed. There is no button. */
 const stockBusy = new Set();
 function stockQuery(it) {
   const brand = (it.brand || "").toLowerCase(), title = (it.title || "").trim(), model = (it.model || "").trim();
@@ -896,10 +898,10 @@ async function fetchStock(itemId, byHand) {
   if (!q) { if (byHand) toast("Stock photos work for Milwaukee (needs the model number) and Olight (needs the title)", 4500); return; }
   if (!relayReady()) { if (byHand) toast("Not connected – can't get a stock photo"); return; }
   if ((src.photos || []).length >= 8) { if (byHand) toast("8 photos is the Whatnot limit – remove one first"); return; }
-  if (!byHand && ((src.photos || []).length || src.stockTried)) return;
+  if (!byHand && ((src.photos || []).length || src.stockTried || src.stockRemoved)) return;
   stockBusy.add(itemId);
-  const btn = $("btnStock"), label = "🖼 Stock photo";
-  if (current && current.id === itemId) { btn.disabled = true; btn.textContent = "Finding photo…"; }
+  const note = (t) => { const h = $("stockNote"); if (h) h.textContent = t; };
+  if (current && current.id === itemId) note("Finding the stock photo…");
   let url = "", err = null, notFound = false;
   try {
     let r = await relay(`/stock?brand=${encodeURIComponent(q.brand)}&model=${encodeURIComponent(q.model)}&sku=${encodeURIComponent(src.sku)}&title=${encodeURIComponent(q.title)}`, { method: "POST" });
@@ -909,7 +911,7 @@ async function fetchStock(itemId, byHand) {
     url = r.url;
   } catch (e) { err = e; notFound = e.status === 404 || e.status === 400; }
   stockBusy.delete(itemId);
-  btn.disabled = false; btn.textContent = label;
+  note("");
   const photo = url ? { url, stock: true } : null;
   if (current && current.id === itemId) {
     if (photo) { current.photos = current.photos || []; current.photos.unshift(photo); renderPhotos(); }
@@ -927,7 +929,7 @@ async function fetchStock(itemId, byHand) {
   if (photo && byHand) toast("Stock photo added as the thumbnail");
   if (err && byHand) toast(err.message || "Couldn't get a stock photo", 4500);
 }
-$("btnStock").onclick = () => { if (current) fetchStock(current.id, true); };
+
 $("btnPick").onclick = () => $("pickFile").click();
 $("pickFile").onchange = async (e) => {
   for (const f of [...e.target.files]) { const b = await fileToBlob(f); if (!(await addPhotoBlob(b))) break; }
