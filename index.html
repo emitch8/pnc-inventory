@@ -221,6 +221,7 @@ table.ex td{padding:8px 4px;border-top:1px solid var(--line);vertical-align:top}
         <b style="flex:1">Photos</b>
         <button class="btn primary small" id="btnPhotos" style="flex:0 0 auto">📷 Take photos</button>
         <button class="btn small" id="btnPick" style="flex:0 0 auto">From library</button>
+        <button class="btn small" id="btnStock" style="flex:0 0 auto">🖼 Stock photo</button>
         <input id="pickFile" type="file" accept="image/*" multiple class="hide">
       </div>
       <div class="photos" id="photos"></div>
@@ -877,6 +878,30 @@ const doSave = async () => {
 $("btnSave").onclick = doSave; $("btnSave2").onclick = doSave;
 $("btnPrint").onclick = async () => { readForm(); if (current._isNew) await commitCurrent(true); printLabel(); };
 $("btnPhotos").onclick = () => openCamera("photo");
+/* Stock photo: the manufacturer's own product picture, found by model number. It goes in
+   FIRST, so it becomes the Whatnot thumbnail; his own photos stay behind it. */
+$("btnStock").onclick = async () => {
+  if (!current) return;
+  readForm();
+  const model = (current.model || "").trim();
+  if (!model) { toast("Enter the model number first"); return; }
+  if (!relayReady()) { toast("Not connected – can't get a stock photo"); return; }
+  if ((current.photos || []).length >= 8) { toast("8 photos is the Whatnot limit – remove one first"); return; }
+  const btn = $("btnStock"); btn.disabled = true; const label = btn.textContent; btn.textContent = "Finding…";
+  try {
+    await commitCurrent(true);
+    let r = await relay(`/stock?model=${encodeURIComponent(model)}&sku=${encodeURIComponent(current.sku)}&title=${encodeURIComponent(current.title || "")}`, { method: "POST" });
+    for (let i = 0; i < 10 && r.pending && r.id; i++) { await new Promise((res) => setTimeout(res, 1500)); r = await relay("/status?id=" + encodeURIComponent(r.id)); }
+    if (r.error) throw new Error(r.error);
+    if (!r.url) throw new Error("Still processing – try again in a minute");
+    current.photos = current.photos || [];
+    current.photos.unshift({ url: r.url, stock: true });
+    await commitCurrent(true);
+    renderPhotos(); renderList();
+    toast("Stock photo added as the thumbnail");
+  } catch (e) { toast(e.message || "Couldn't get a stock photo", 4000); }
+  finally { btn.disabled = false; btn.textContent = label; }
+};
 $("btnPick").onclick = () => $("pickFile").click();
 $("pickFile").onchange = async (e) => {
   for (const f of [...e.target.files]) { const b = await fileToBlob(f); if (!(await addPhotoBlob(b))) break; }
