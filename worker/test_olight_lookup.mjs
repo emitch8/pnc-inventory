@@ -7,7 +7,10 @@ const expected = [
   { upc: "6977370477036", part: "U1SS", brand: "Oknife", name: "Otacle U1 Folding Utility Knife - Stars & Stripes", msrp: 24.99 },
   { upc: "6977370477067", part: "U1GM", brand: "Oknife", name: "Otacle U1 Folding Utility Knife - Green Micarta", msrp: 24.99 },
   { upc: "6977370470709", part: "U1 ULTRA ZOMBIE GREEN", brand: "Oknife", name: "U1ULTRAZG Otacle U1 Ceramic Ultra Button Lock Knife Zombie Green Aluminum Handle", msrp: 54.99 },
-  { upc: "6977261691985", part: "OCLIPULTRAOAL", brand: "Olight", name: "Oclip Ultra Clip-On EDC Light with Flood, Spot, and UV Modes - Olive Green", msrp: 49.99 },
+  { upc: "6977261691985", part: "OCLIPULTRAOAL", brand: "Olight", name: "Oclip Ultra Clip-On EDC Light with Flood, Spot, and UV Modes - Olive Green", msrp: 49.99 },  { upc: "6977261697437", part: "SPHERECPINK", brand: "Olight", name: "Sphere C Pink Ambient Light with App Control for Charity Sale", msrp: 17.99 },
+  { upc: "6972378120328", part: "I3TDT1", brand: "Olight", name: "i3T EOS Small Flashlight - Desert Tan", msrp: 17.99 },
+  { upc: "6977261697734", part: "I3T 2 EOS MOKUME CAMOCARBON", brand: "Olight", name: "i3T 2 EOS Mokume CamoCarbon", msrp: "" },
+  { upc: "6977261697505", part: "ARKPROSSEV2", brand: "Olight", name: "ArkPro Series – Flat Unibody EDC Flashlight with Multi-Light Sources - ArkPro / Stars & Stripes Edition", msrp: 99.99 },
 ];
 
 let failed = 0;
@@ -20,7 +23,7 @@ function check(name, cond, detail) {
   }
 }
 
-check("catalog has 748 rows", OLIGHT_ROW_COUNT === 748, OLIGHT_ROW_COUNT);
+check("catalog has 749 rows", OLIGHT_ROW_COUNT === 749, OLIGHT_ROW_COUNT);
 
 for (const exp of expected) {
   const r = lookupOlightCatalog(exp.upc);
@@ -39,6 +42,11 @@ for (const exp of expected) {
 const byPart = lookupOlightCatalog("I3EHG");
 check("part number I3EHG found", !!byPart && byPart.found && byPart.upc === "6977261694344" && byPart.msrp === 12.99, byPart);
 check("part number I3EHG no cost/price", byPart && !objectHasForbiddenMoney(byPart) && !("price" in byPart) && !("cost" in byPart));
+
+const byMokume = lookupOlightCatalog("I3T 2 EOS MOKUME CAMOCARBON");
+check("part number Mokume found", !!byMokume && byMokume.found && byMokume.upc === "6977261697734" && byMokume.msrp === "", byMokume);
+check("Mokume msrp left blank", byMokume && byMokume.msrp === "");
+check("Mokume no cost/price", byMokume && !objectHasForbiddenMoney(byMokume) && !("price" in byMokume) && !("cost" in byMokume));
 
 const unknown = lookupOlightCatalog("0009998887776");
 check("unknown UPC not found", unknown === null, unknown);
