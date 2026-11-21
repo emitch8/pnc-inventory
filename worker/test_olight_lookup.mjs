@@ -11,6 +11,10 @@ const expected = [
   { upc: "6972378120328", part: "I3TDT1", brand: "Olight", name: "i3T EOS Small Flashlight - Desert Tan", msrp: 17.99 },
   { upc: "6977261697734", part: "I3T 2 EOS MOKUME CAMOCARBON", brand: "Olight", name: "i3T 2 EOS Mokume CamoCarbon", msrp: "" },
   { upc: "6977261697505", part: "ARKPROSSEV2", brand: "Olight", name: "ArkPro Series – Flat Unibody EDC Flashlight with Multi-Light Sources - ArkPro / Stars & Stripes Edition", msrp: 99.99 },
+  { upc: "6979955450298", part: "ARKPROWRCW", brand: "Olight", name: "ArkPro Series \u2013 Flat Unibody EDC Flashlight with Multi-Light Sources - ArkPro / Wasteland Relic CW", msrp: 109.99 },
+  { upc: "6977261697796", part: "OCLIP2PROBK", brand: "Olight", name: "Oclip 2 Pro EDC Clip Flashlight | 530lm Floodlight, Red & Spotlight - Oclip 2 Pro Black", msrp: 49.99 },
+  { upc: "6977261696805", part: "OPEN3MR", brand: "Olight", name: "O'Pen 3 Multifunctional Pen Light with 120 Lumens & Green Laser - O'Pen 3 Midnight Red", msrp: 79.99 },
+  { upc: "6977261696621", part: "PLXGLMB", brand: "Olight", name: "PL X GL 3-in-1 Light: Floodlight, Spotlight & Green Beam - PL X GL Matte Black", msrp: 149.99 },
 ];
 
 let failed = 0;
